@@ -31,6 +31,7 @@ const EUR_NOTES = [
 const TIP_SECTIONS = [
   { key: "happyHours", label: "Happy hours", color: "#D9822B" },
   { key: "foodDeals", label: "Food deals", color: "#3B8A5F" },
+  { key: "deals", label: "Deals", color: "#B23A6B" },
   { key: "landmarks", label: "Landmarks", color: "#3E6FB4" },
   { key: "photoSpots", label: "Photo spots", color: "#8A63B8" },
   { key: "familyPicks", label: "For the family", color: "#2E7D74" },
@@ -252,6 +253,11 @@ export default function App() {
       name + (tips && tips.area ? ", " + tips.area : "")
     )}`;
 
+  const dealHref = (it) =>
+    it.url && /^https:\/\//.test(it.url)
+      ? it.url
+      : `https://www.google.com/search?q=${encodeURIComponent((it.name || "") + " " + (it.source || "deal"))}`;
+
   const resultText = amt > 0 ? `${toSym}${fmt(result)}` : `${toSym}0.00`;
   const busy = tipsPhase === "locating" || tipsPhase === "searching";
 
@@ -430,7 +436,7 @@ export default function App() {
         </button>
 
         <p style={{ marginTop: 14, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: MUTED, lineHeight: 1.6 }}>
-          v6 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
+          v7 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
         </p>
       </div>
 
@@ -573,12 +579,12 @@ export default function App() {
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
                               <div style={{ fontWeight: 700, fontSize: 14.5 }}>{it.name}</div>
                               <a
-                                href={mapsHref(it.name)}
+                                href={sec.key === "deals" ? dealHref(it) : mapsHref(it.name)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: EUR_BLUE, textDecoration: "underline", flexShrink: 0 }}
                               >
-                                map ↗
+                                {sec.key === "deals" ? "deal" : "map"} ↗
                               </a>
                             </div>
                             {it.detail && (
@@ -592,6 +598,11 @@ export default function App() {
                             {it.price && (
                               <div style={{ marginTop: 3, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: INK, fontWeight: 500 }}>
                                 {it.price}
+                              </div>
+                            )}
+                            {it.source && (
+                              <div style={{ marginTop: 3, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED }}>
+                                via {it.source}
                               </div>
                             )}
                           </div>
