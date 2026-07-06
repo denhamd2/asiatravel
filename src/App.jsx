@@ -3,6 +3,8 @@ import { useState, useEffect, useRef } from "react";
 // ---- Rate (mid-market, editable in-app) ----
 const DEFAULT_RATE = 0.678; // 1 SGD in EUR
 const STORE_KEY = "pocket-fx-sgd-eur";
+const DEFAULT_INTERESTS =
+  "football, street food and markets, things a 17-year-old and a 10-year-old will enjoy";
 
 // ---- Design tokens ----
 const PAPER = "#EFF1EA";
@@ -31,6 +33,7 @@ const TIP_SECTIONS = [
   { key: "foodDeals", label: "Food deals", color: "#3B8A5F" },
   { key: "landmarks", label: "Landmarks", color: "#3E6FB4" },
   { key: "photoSpots", label: "Photo spots", color: "#8A63B8" },
+  { key: "familyPicks", label: "For the family", color: "#2E7D74" },
 ];
 
 const LOADING_MSGS = [
@@ -39,6 +42,7 @@ const LOADING_MSGS = [
   "Checking today’s happy hours…",
   "Hunting down food deals…",
   "Finding the photo spots…",
+  "Double-checking everything…",
 ];
 
 const toNumber = (s) => {
@@ -54,9 +58,10 @@ const loadStored = () => {
     return {
       rate: typeof s.rate === "number" && s.rate > 0 ? s.rate : DEFAULT_RATE,
       direction: s.direction === "EUR_SGD" ? "EUR_SGD" : "SGD_EUR",
+      interests: typeof s.interests === "string" && s.interests ? s.interests : DEFAULT_INTERESTS,
     };
   } catch (e) {
-    return { rate: DEFAULT_RATE, direction: "SGD_EUR" };
+    return { rate: DEFAULT_RATE, direction: "SGD_EUR", interests: DEFAULT_INTERESTS };
   }
 };
 
@@ -104,6 +109,9 @@ export default function App() {
   const [tipsError, setTipsError] = useState("");
   const [msgIdx, setMsgIdx] = useState(0);
   const [manualPlace, setManualPlace] = useState("");
+  const [interests, setInterests] = useState(initial.interests);
+  const [editingFam, setEditingFam] = useState(false);
+  const [famDraft, setFamDraft] = useState("");
   const lastRequest = useRef({ type: "gps" });
 
   useEffect(() => {
@@ -112,11 +120,11 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ rate, direction }));
+      localStorage.setItem(STORE_KEY, JSON.stringify({ rate, direction, interests }));
     } catch (e) {
       /* private mode etc — in-memory only */
     }
-  }, [rate, direction]);
+  }, [rate, direction, interests]);
 
   useEffect(() => {
     if (tipsPhase !== "locating" && tipsPhase !== "searching") return;
@@ -175,7 +183,7 @@ export default function App() {
       const r = await fetch("/api/tips", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ locationLine, localTime: new Date().toString() }),
+        body: JSON.stringify({ locationLine, localTime: new Date().toString(), interests }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error((data && data.error) || "Request failed");
@@ -422,7 +430,7 @@ export default function App() {
         </button>
 
         <p style={{ marginTop: 14, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: MUTED, lineHeight: 1.6 }}>
-          v5 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
+          v6 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
         </p>
       </div>
 
@@ -465,6 +473,42 @@ export default function App() {
               </div>
             </div>
 
+
+            {/* Family interests — sent with every lookup */}
+            <div style={{ marginTop: 10, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, lineHeight: 1.5 }}>
+              {editingFam ? (
+                <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input
+                    autoFocus
+                    value={famDraft}
+                    onChange={(e) => setFamDraft(e.target.value.slice(0, 200))}
+                    style={{ flex: 1, minWidth: 0, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, border: `1.5px solid ${INK}`, borderRadius: 4, padding: "4px 6px", background: "#fff", color: INK }}
+                    aria-label="Family interests"
+                  />
+                  <button
+                    onClick={() => {
+                      if (famDraft.trim()) setInterests(famDraft.trim());
+                      setEditingFam(false);
+                    }}
+                    style={{ fontFamily: "inherit", fontSize: "inherit", fontWeight: 500, color: INK, textDecoration: "underline", flexShrink: 0 }}
+                  >
+                    Save
+                  </button>
+                </span>
+              ) : (
+                <button
+                  onClick={() => {
+                    setFamDraft(interests);
+                    setEditingFam(true);
+                  }}
+                  style={{ textAlign: "left", fontFamily: "inherit", fontSize: "inherit", color: MUTED, lineHeight: 1.5 }}
+                  aria-label="Edit family interests"
+                >
+                  <span style={{ color: "#2E7D74", fontWeight: 500 }}>FAMILY:</span> {interests} ✎
+                </button>
+              )}
+            </div>
+
             {busy && (
               <div style={{ padding: "42px 0 34px", textAlign: "center" }}>
                 <div className="pulse" style={{ display: "inline-flex", marginBottom: 12 }}>
@@ -474,7 +518,7 @@ export default function App() {
                   {tipsPhase === "locating" ? LOADING_MSGS[0] : LOADING_MSGS[msgIdx]}
                 </div>
                 <div style={{ marginTop: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: MUTED, opacity: 0.7 }}>
-                  Searching the live web — takes ~20–30s
+                  Searching + verifying on the live web — ~30–60s
                 </div>
               </div>
             )}
@@ -545,6 +589,11 @@ export default function App() {
                                 {it.when}
                               </div>
                             )}
+                            {it.price && (
+                              <div style={{ marginTop: 3, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: INK, fontWeight: 500 }}>
+                                {it.price}
+                              </div>
+                            )}
                           </div>
                         ))
                       )}
@@ -560,7 +609,7 @@ export default function App() {
                 </div>
 
                 <p style={{ marginTop: 16, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: MUTED, lineHeight: 1.6 }}>
-                  Pulled from live web results — offers can change, worth a quick double-check before ordering.
+                  Web-sourced and auto-verified — but offers change fast, so glance before you order.
                 </p>
               </div>
             )}
