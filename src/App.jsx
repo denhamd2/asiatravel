@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
 // ---- Rate (mid-market, editable in-app) ----
-const DEFAULT_RATE = 0.678; // 1 SGD in EUR
+const RATE_AS_OF = "6 Jul ’26";
 const STORE_KEY = "pocket-fx-sgd-eur";
 const DEFAULT_INTERESTS =
   "football, street food and markets, things a 17-year-old and a 10-year-old will enjoy";
@@ -13,19 +13,45 @@ const SGD_RED = "#CE2B37";
 const EUR_BLUE = "#003399";
 const MUTED = "#6B746D";
 
-const SGD_NOTES = [
-  { value: 2, color: "#8A63B8" },
-  { value: 5, color: "#3B8A5F" },
-  { value: 10, color: "#CE3A34" },
-  { value: 50, color: "#3E6FB4" },
-  { value: 100, color: "#D9822B" },
-];
+// ---- Currencies: rate is EUR per `per` units (mid-market, editable in-app) ----
+const CURRENCIES = {
+  SGD: {
+    name: "Singapore dollars", sym: "S$", color: "#CE2B37", per: 1, defRate: 0.678,
+    notes: [
+      { value: 2, label: "$2", color: "#8A63B8" },
+      { value: 5, label: "$5", color: "#3B8A5F" },
+      { value: 10, label: "$10", color: "#CE3A34" },
+      { value: 50, label: "$50", color: "#3E6FB4" },
+      { value: 100, label: "$100", color: "#D9822B" },
+    ],
+  },
+  THB: {
+    name: "Thai baht", sym: "฿", color: "#A9761B", per: 1, defRate: 0.0261,
+    notes: [
+      { value: 20, label: "฿20", color: "#3B8A5F" },
+      { value: 50, label: "฿50", color: "#3E6FB4" },
+      { value: 100, label: "฿100", color: "#CE3A34" },
+      { value: 500, label: "฿500", color: "#8A63B8" },
+      { value: 1000, label: "฿1000", color: "#8E8B84" },
+    ],
+  },
+  VND: {
+    name: "Vietnamese dong", sym: "₫", color: "#C8102E", per: 10000, defRate: 0.333,
+    notes: [
+      { value: 20000, label: "20k", color: "#3E6FB4" },
+      { value: 50000, label: "50k", color: "#C05C7E" },
+      { value: 100000, label: "100k", color: "#3B8A5F" },
+      { value: 200000, label: "200k", color: "#B0533A" },
+      { value: 500000, label: "500k", color: "#2E9AA8" },
+    ],
+  },
+};
 const EUR_NOTES = [
-  { value: 5, color: "#8E979E" },
-  { value: 10, color: "#C94F44" },
-  { value: 20, color: "#3F6FBF" },
-  { value: 50, color: "#E08A2E" },
-  { value: 100, color: "#3E9B6E" },
+  { value: 5, label: "€5", color: "#8E979E" },
+  { value: 10, label: "€10", color: "#C94F44" },
+  { value: 20, label: "€20", color: "#3F6FBF" },
+  { value: 50, label: "€50", color: "#E08A2E" },
+  { value: 100, label: "€100", color: "#3E9B6E" },
 ];
 
 const TIP_SECTIONS = [
@@ -55,14 +81,25 @@ const fmt = (n) =>
 
 const loadStored = () => {
   try {
-    const s = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
+    const st = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
+    const rates = {};
+    for (const k of Object.keys(CURRENCIES)) {
+      rates[k] =
+        st.rates && typeof st.rates[k] === "number" && st.rates[k] > 0
+          ? st.rates[k]
+          : CURRENCIES[k].defRate;
+    }
+    if (!st.rates && typeof st.rate === "number" && st.rate > 0) rates.SGD = st.rate;
     return {
-      rate: typeof s.rate === "number" && s.rate > 0 ? s.rate : DEFAULT_RATE,
-      direction: s.direction === "EUR_SGD" ? "EUR_SGD" : "SGD_EUR",
-      interests: typeof s.interests === "string" && s.interests ? s.interests : DEFAULT_INTERESTS,
+      cur: CURRENCIES[st.cur] ? st.cur : "THB",
+      flip: st.flip === true,
+      rates,
+      interests: typeof st.interests === "string" && st.interests ? st.interests : DEFAULT_INTERESTS,
     };
   } catch (e) {
-    return { rate: DEFAULT_RATE, direction: "SGD_EUR", interests: DEFAULT_INTERESTS };
+    const rates = {};
+    for (const k of Object.keys(CURRENCIES)) rates[k] = CURRENCIES[k].defRate;
+    return { cur: "THB", flip: false, rates, interests: DEFAULT_INTERESTS };
   }
 };
 
@@ -96,9 +133,10 @@ const Pin = ({ color = PAPER, size = 15 }) => (
 
 export default function App() {
   const initial = useRef(loadStored()).current;
-  const [direction, setDirection] = useState(initial.direction);
+  const [cur, setCur] = useState(initial.cur);
+  const [flip, setFlip] = useState(initial.flip);
+  const [rates, setRates] = useState(initial.rates);
   const [amount, setAmount] = useState("");
-  const [rate, setRate] = useState(initial.rate);
   const [editingRate, setEditingRate] = useState(false);
   const [rateDraft, setRateDraft] = useState("");
   const inputRef = useRef(null);
@@ -121,11 +159,11 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ rate, direction, interests }));
+      localStorage.setItem(STORE_KEY, JSON.stringify({ cur, flip, rates, interests }));
     } catch (e) {
       /* private mode etc — in-memory only */
     }
-  }, [rate, direction, interests]);
+  }, [cur, flip, rates, interests]);
 
   useEffect(() => {
     if (tipsPhase !== "locating" && tipsPhase !== "searching") return;
@@ -133,19 +171,20 @@ export default function App() {
     return () => clearInterval(id);
   }, [tipsPhase]);
 
-  const isSgdFirst = direction === "SGD_EUR";
+  const C = CURRENCIES[cur];
+  const rate = rates[cur];
+  const isHome = !flip;
   const amt = toNumber(amount);
-  const result = isSgdFirst ? amt * rate : rate > 0 ? amt / rate : 0;
+  const result = isHome ? (amt * rate) / C.per : rate > 0 ? (amt * C.per) / rate : 0;
 
-  const fromName = isSgdFirst ? "Singapore dollars" : "Euros";
-  const toName = isSgdFirst ? "Euros" : "Singapore dollars";
-  const fromSym = isSgdFirst ? "S$" : "€";
-  const toSym = isSgdFirst ? "€" : "S$";
-  const fromColor = isSgdFirst ? SGD_RED : EUR_BLUE;
-  const toColor = isSgdFirst ? EUR_BLUE : SGD_RED;
-  const notes = isSgdFirst ? SGD_NOTES : EUR_NOTES;
-  const noteSym = isSgdFirst ? "$" : "€";
-  const isCustomRate = Math.abs(rate - DEFAULT_RATE) > 1e-9;
+  const fromName = isHome ? C.name : "Euros";
+  const toName = isHome ? "Euros" : C.name;
+  const fromSym = isHome ? C.sym : "€";
+  const toSym = isHome ? "€" : C.sym;
+  const fromColor = isHome ? C.color : EUR_BLUE;
+  const toColor = isHome ? EUR_BLUE : C.color;
+  const notes = isHome ? C.notes : EUR_NOTES;
+  const isCustomRate = Math.abs(rate - C.defRate) > 1e-9;
 
   const handleAmount = (raw) => {
     let clean = raw.replace(/[^\d.]/g, "");
@@ -162,7 +201,7 @@ export default function App() {
 
   const swap = () => {
     const carried = result > 0 ? String(Math.round(result * 100) / 100) : amount;
-    setDirection(isSgdFirst ? "EUR_SGD" : "SGD_EUR");
+    setFlip(!flip);
     setAmount(carried);
     if (inputRef.current) inputRef.current.focus();
   };
@@ -173,7 +212,7 @@ export default function App() {
   };
   const saveRate = () => {
     const r = parseFloat(rateDraft);
-    if (isFinite(r) && r > 0) setRate(r);
+    if (isFinite(r) && r > 0) setRates({ ...rates, [cur]: r });
     setEditingRate(false);
   };
 
@@ -316,9 +355,9 @@ export default function App() {
         {/* Compact header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <h1 style={{ margin: 0, fontSize: 21, fontWeight: 800, letterSpacing: "-0.01em" }}>
-            <span style={{ color: fromColor }}>{isSgdFirst ? "SGD" : "EUR"}</span>
+            <span style={{ color: fromColor }}>{isHome ? cur : "EUR"}</span>
             <span style={{ color: MUTED, fontWeight: 500 }}> → </span>
-            <span style={{ color: toColor }}>{isSgdFirst ? "EUR" : "SGD"}</span>
+            <span style={{ color: toColor }}>{isHome ? "EUR" : cur}</span>
           </h1>
           <button
             onClick={swap}
@@ -333,7 +372,7 @@ export default function App() {
         <div style={{ marginTop: 4, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {editingRate ? (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              1 SGD =
+              {C.per === 1 ? "1" : "10,000"} {cur} =
               <input
                 autoFocus
                 inputMode="decimal"
@@ -341,7 +380,7 @@ export default function App() {
                 onChange={(e) => setRateDraft(e.target.value.replace(/[^\d.]/g, ""))}
                 onKeyDown={(e) => e.key === "Enter" && saveRate()}
                 style={{ width: 72, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, border: `1.5px solid ${INK}`, borderRadius: 4, padding: "2px 5px", background: "#fff", color: INK }}
-                aria-label="Rate: 1 SGD in EUR"
+                aria-label="Rate in EUR"
               />
               EUR
               <button onClick={saveRate} style={{ fontWeight: 500, color: INK, textDecoration: "underline" }}>Save</button>
@@ -350,20 +389,37 @@ export default function App() {
           ) : (
             <span>
               <button onClick={openRate} style={{ fontFamily: "inherit", fontSize: "inherit", color: INK, borderBottom: `1px dotted ${MUTED}` }} aria-label="Edit exchange rate">
-                1 SGD = {rate} EUR ✎
+                {C.per === 1 ? "1" : "10,000"} {cur} = {rate} EUR ✎
               </button>
               {isCustomRate ? (
                 <>
                   {" "}· custom{" "}
-                  <button onClick={() => setRate(DEFAULT_RATE)} style={{ fontFamily: "inherit", fontSize: "inherit", color: MUTED, textDecoration: "underline" }}>
+                  <button onClick={() => setRates({ ...rates, [cur]: C.defRate })} style={{ fontFamily: "inherit", fontSize: "inherit", color: MUTED, textDecoration: "underline" }}>
                     reset
                   </button>
                 </>
               ) : (
-                <span> · 5 Jul ’26</span>
+                <span> · {RATE_AS_OF}</span>
               )}
             </span>
           )}
+        </div>
+
+        {/* Currency picker */}
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          {Object.keys(CURRENCIES).map((k) => (
+            <button
+              key={k}
+              onClick={() => {
+                setCur(k);
+                setAmount("");
+              }}
+              aria-label={`Use ${CURRENCIES[k].name}`}
+              style={{ flex: 1, padding: "7px 0", borderRadius: 999, border: `1.5px solid ${cur === k ? CURRENCIES[k].color : MUTED}`, background: cur === k ? CURRENCIES[k].color : "transparent", color: cur === k ? "#fff" : MUTED, fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, fontWeight: 500, letterSpacing: "0.08em" }}
+            >
+              {k}
+            </button>
+          ))}
         </div>
 
         {/* Converter card */}
@@ -416,11 +472,11 @@ export default function App() {
                 key={n.value}
                 className="note-btn"
                 onClick={() => addNote(n.value)}
-                aria-label={`Add ${noteSym}${n.value}`}
-                style={{ width: 62, height: 34, borderRadius: 5, background: n.color, color: "#fff", position: "relative", fontWeight: 700, fontSize: 14.5, boxShadow: "0 1.5px 0 rgba(0,0,0,0.22)" }}
+                aria-label={`Add ${n.label}`}
+                style={{ width: 62, height: 34, borderRadius: 5, background: n.color, color: "#fff", position: "relative", fontWeight: 700, fontSize: n.label.length > 4 ? 12 : 14.5, boxShadow: "0 1.5px 0 rgba(0,0,0,0.22)" }}
               >
                 <span style={{ position: "absolute", inset: 3, border: "1px solid rgba(255,255,255,0.45)", borderRadius: 3, pointerEvents: "none" }} />
-                {noteSym}{n.value}
+                {n.label}
               </button>
             ))}
           </div>
@@ -436,7 +492,7 @@ export default function App() {
         </button>
 
         <p style={{ marginTop: 14, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: MUTED, lineHeight: 1.6 }}>
-          v7 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
+          v9 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
         </p>
       </div>
 
