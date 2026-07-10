@@ -148,9 +148,7 @@ export default function App() {
   const [tipsError, setTipsError] = useState("");
   const [msgIdx, setMsgIdx] = useState(0);
   const [manualPlace, setManualPlace] = useState("");
-  const [interests, setInterests] = useState(initial.interests);
-  const [editingFam, setEditingFam] = useState(false);
-  const [famDraft, setFamDraft] = useState("");
+  const [interests] = useState(initial.interests);
   const lastRequest = useRef({ type: "gps" });
 
   useEffect(() => {
@@ -492,7 +490,7 @@ export default function App() {
         </button>
 
         <p style={{ marginTop: 14, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: MUTED, lineHeight: 1.6 }}>
-          v10 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
+          v11 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
         </p>
       </div>
 
@@ -535,41 +533,6 @@ export default function App() {
               </div>
             </div>
 
-
-            {/* Family interests — sent with every lookup */}
-            <div style={{ marginTop: 10, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, lineHeight: 1.5 }}>
-              {editingFam ? (
-                <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <input
-                    autoFocus
-                    value={famDraft}
-                    onChange={(e) => setFamDraft(e.target.value.slice(0, 200))}
-                    style={{ flex: 1, minWidth: 0, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, border: `1.5px solid ${INK}`, borderRadius: 4, padding: "4px 6px", background: "#fff", color: INK }}
-                    aria-label="Family interests"
-                  />
-                  <button
-                    onClick={() => {
-                      if (famDraft.trim()) setInterests(famDraft.trim());
-                      setEditingFam(false);
-                    }}
-                    style={{ fontFamily: "inherit", fontSize: "inherit", fontWeight: 500, color: INK, textDecoration: "underline", flexShrink: 0 }}
-                  >
-                    Save
-                  </button>
-                </span>
-              ) : (
-                <button
-                  onClick={() => {
-                    setFamDraft(interests);
-                    setEditingFam(true);
-                  }}
-                  style={{ textAlign: "left", fontFamily: "inherit", fontSize: "inherit", color: MUTED, lineHeight: 1.5 }}
-                  aria-label="Edit family interests"
-                >
-                  <span style={{ color: "#2E7D74", fontWeight: 500 }}>FAMILY:</span> {interests} ✎
-                </button>
-              )}
-            </div>
 
             {busy && (
               <div style={{ padding: "42px 0 34px", textAlign: "center" }}>
