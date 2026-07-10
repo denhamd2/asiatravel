@@ -219,31 +219,47 @@ Max 4 deals. "detail" max 12 words. "price" short (e.g. "\u0e3f299 for two", "40
         ? dealsR.value.deals.slice(0, 4)
         : [];
 
-    // Best-effort verification pass — falls back to the draft if anything goes wrong
-    try {
-      const checkPrompt = `You are a fact-checker for a travel app. Today is ${now}. Verify this list of places, offers, and deals near ${draft.area || "the user's location"} using targeted Google searches:
+    draft.meta = { verified: false, pending: true, model: activeModel };
+    return res.json(draft);
+  } catch (err) {
+    return res.status(500).json({ error: err.message || "Tips lookup failed. Try again." });
+  }
+});
 
-${JSON.stringify(draft)}
+// ---- Background verification: takes a draft, returns the corrected version ----
+app.post("/api/verify", async (req, res) => {
+  const { draft, localTime } = req.body || {};
+  if (!draft || typeof draft !== "object" || Array.isArray(draft) || !draft.area) {
+    return res.status(400).json({ error: "Invalid draft." });
+  }
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(500).json({
+      error: "Server is missing its GEMINI_API_KEY \u2014 add it in Railway \u2192 Variables.",
+    });
+  }
+  const now = localTime || new Date().toString();
+  try {
+    const clean = { ...draft };
+    delete clean.meta;
+    const checkPrompt = `You are a fact-checker for a travel app. Today is ${now}. Verify this list of places, offers, and deals near ${clean.area || "the user's location"} using targeted Google searches:
+
+${JSON.stringify(clean)}
 
 Rules:
 - For happyHours, foodDeals, and deals: confirm the offer, times, and prices are current; correct anything wrong, and REMOVE any offer you cannot reasonably confirm from search results.
-- For landmarks, photoSpots, and familyPicks: the bar is existence — keep the item if the place exists and is roughly as described; only remove it if it appears closed, wrong, or not near the area. Never remove these just because there is no offer to confirm.
+- For landmarks, photoSpots, and familyPicks: the bar is existence \u2014 keep the item if the place exists and is roughly as described; only remove it if it appears closed, wrong, or not near the area. Never remove these just because there is no offer to confirm.
 - Keep "url" and "source" fields exactly as given unless the item is removed.
 - Do not add new items. Keep "detail" max 12 words. ${JSON_RULES}
-Respond with ONLY the corrected JSON in exactly the same shape — no commentary.`;
-      const verified = await askModel(checkPrompt);
-      if (verified && verified.area) {
-        verified.meta = { verified: true, model: activeModel };
-        return res.json(verified);
-      }
-      draft.meta = { verified: false, model: activeModel };
-      return res.json(draft);
-    } catch (e) {
-      draft.meta = { verified: false, model: activeModel };
-      return res.json(draft);
+Respond with ONLY the corrected JSON in exactly the same shape \u2014 no commentary.`;
+    const verified = await askModel(checkPrompt);
+    if (verified && verified.area) {
+      verified.meta = { verified: true, model: activeModel };
+      return res.json(verified);
     }
-  } catch (err) {
-    return res.status(500).json({ error: err.message || "Tips lookup failed. Try again." });
+    throw new Error("bad verify shape");
+  } catch (e) {
+    const out = { ...draft, meta: { verified: false, model: activeModel } };
+    return res.json(out);
   }
 });
 

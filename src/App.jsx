@@ -79,6 +79,26 @@ const toNumber = (s) => {
 const fmt = (n) =>
   n.toLocaleString("en-IE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const postJson = async (url, body, timeoutMs = 90000, retries = 1) => {
+  for (let i = 0; i <= retries; i++) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: ctl.signal,
+      });
+      clearTimeout(timer);
+      return r;
+    } catch (e) {
+      clearTimeout(timer);
+      if (i === retries) throw e;
+    }
+  }
+};
+
 const loadStored = () => {
   try {
     const st = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
@@ -215,20 +235,46 @@ export default function App() {
   };
 
   // ---- Local tips flow ----
+  const verifyInBackground = async (draft) => {
+    try {
+      const r = await postJson(
+        "/api/verify",
+        { draft, localTime: new Date().toString() },
+        150000,
+        1
+      );
+      const data = await r.json();
+      if (r.ok && data && data.area) {
+        setTips(data);
+        return;
+      }
+      throw new Error("verify failed");
+    } catch (e) {
+      setTips((t) =>
+        t ? { ...t, meta: { verified: false, model: t.meta && t.meta.model } } : t
+      );
+    }
+  };
+
   const runSearch = async (locationLine) => {
     setTipsPhase("searching");
     try {
-      const r = await fetch("/api/tips", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ locationLine, localTime: new Date().toString(), interests }),
+      const r = await postJson("/api/tips", {
+        locationLine,
+        localTime: new Date().toString(),
+        interests,
       });
       const data = await r.json();
       if (!r.ok) throw new Error((data && data.error) || "Request failed");
       setTips(data);
       setTipsPhase("done");
+      verifyInBackground(data);
     } catch (e) {
-      setTipsError(e.message || "Couldn’t fetch tips. Try again in a moment.");
+      setTipsError(
+        e.name === "AbortError"
+          ? "The lookup timed out — flaky connection? Try again."
+          : e.message || "Couldn’t fetch tips. Try again in a moment."
+      );
       setTipsPhase("apiError");
     }
   };
@@ -490,7 +536,7 @@ export default function App() {
         </button>
 
         <p style={{ marginTop: 14, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: MUTED, lineHeight: 1.6 }}>
-          v11 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
+          v12 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
         </p>
       </div>
 
@@ -543,7 +589,7 @@ export default function App() {
                   {tipsPhase === "locating" ? LOADING_MSGS[0] : LOADING_MSGS[msgIdx]}
                 </div>
                 <div style={{ marginTop: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: MUTED, opacity: 0.7 }}>
-                  Searching + verifying on the live web — ~30–60s
+                  Searching the live web — ~20–40s, fact-check follows
                 </div>
               </div>
             )}
@@ -640,7 +686,7 @@ export default function App() {
 
                 {tips.meta && (
                   <p style={{ marginTop: 16, marginBottom: 0, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: tips.meta.verified ? "#2E7D74" : "#A9761B" }}>
-                    {tips.meta.verified ? "✓ fact-check pass ran" : "⚠ fact-check pass skipped this run"} · {tips.meta.model}
+                    {tips.meta.pending ? "⏳ fact-checking in the background…" : tips.meta.verified ? "✓ fact-check pass ran" : "⚠ fact-check pass skipped this run"} · {tips.meta.model}
                   </p>
                 )}
                 <p style={{ marginTop: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: MUTED, lineHeight: 1.6 }}>
