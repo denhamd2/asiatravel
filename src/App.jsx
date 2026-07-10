@@ -295,7 +295,7 @@ export default function App() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude, accuracy } = pos.coords;
-        setOrigin({ lat: latitude, lng: longitude });
+        setOrigin({ lat: latitude, lng: longitude, acc: accuracy });
         runSearch(
           `I am standing at latitude ${latitude}, longitude ${longitude} (GPS accuracy ~${Math.round(accuracy)}m).`
         );
@@ -303,7 +303,7 @@ export default function App() {
       () => {
         setTipsPhase("geoError");
       },
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
     );
   };
 
@@ -556,7 +556,7 @@ export default function App() {
         </button>
 
         <p style={{ marginTop: 14, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: MUTED, lineHeight: 1.6 }}>
-          v13 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
+          v14 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
         </p>
       </div>
 
@@ -576,6 +576,12 @@ export default function App() {
                 {tips && tips.area && (
                   <div style={{ marginTop: 2, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11.5, color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {tips.area}
+                  </div>
+                )}
+                {origin && origin.acc != null && (
+                  <div style={{ marginTop: 2, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: origin.acc > 400 ? "#A9761B" : MUTED }}>
+                    GPS fix ±{origin.acc >= 1000 ? (origin.acc / 1000).toFixed(1) + " km" : Math.round(origin.acc) + " m"}
+                    {origin.acc > 400 ? " — rough; step outside or type your spot" : ""}
                   </div>
                 )}
               </div>
