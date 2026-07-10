@@ -6,35 +6,59 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json());
 
-const MODEL = "claude-sonnet-4-6";
+// ---- Gemini model fallback chain: newest first, proven stable as backup ----
+const MODEL_CHAIN = [process.env.GEMINI_MODEL, "gemini-3.5-flash", "gemini-2.5-flash"].filter(
+  Boolean
+);
+let activeModel = null;
 
 const SHAPE = `{"area":"<neighbourhood, city>","happyHours":[{"name":"","detail":"","when":"","price":""}],"foodDeals":[{"name":"","detail":"","when":"","price":""}],"deals":[{"name":"","detail":"","price":"","source":"","url":""}],"landmarks":[{"name":"","detail":"","price":""}],"photoSpots":[{"name":"","detail":""}],"familyPicks":[{"name":"","detail":"","price":""}]}`;
 
 const JSON_RULES = `Strings must escape any internal double quotes so the JSON parses cleanly.`;
 
-// ---- Anthropic call helpers ----
-async function callModel(body) {
-  const upstream = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
-  });
-  const data = await upstream.json();
-  if (!upstream.ok) {
-    throw new Error((data && data.error && data.error.message) || "Upstream API error.");
+// ---- Gemini call: Google Search grounding on, or strict JSON mode when off ----
+async function callGemini(prompt, { useSearch = true } = {}) {
+  const models = activeModel ? [activeModel] : MODEL_CHAIN;
+  let lastErr;
+  for (const model of models) {
+    const body = {
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        maxOutputTokens: 4000,
+        temperature: 0.4,
+        ...(useSearch ? {} : { responseMimeType: "application/json" }),
+      },
+      ...(useSearch ? { tools: [{ google_search: {} }] } : {}),
+    };
+    const upstream = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": process.env.GEMINI_API_KEY,
+        },
+        body: JSON.stringify(body),
+      }
+    );
+    const data = await upstream.json();
+    if (upstream.ok) {
+      activeModel = model;
+      const parts =
+        (data.candidates &&
+          data.candidates[0] &&
+          data.candidates[0].content &&
+          data.candidates[0].content.parts) ||
+        [];
+      return parts.map((p) => p.text || "").join("\n");
+    }
+    const msg = (data && data.error && data.error.message) || `HTTP ${upstream.status}`;
+    lastErr = new Error(msg);
+    // Only fall through the chain when this model isn't available to this key
+    if (upstream.status !== 404 && !/not found|not supported/i.test(msg)) throw lastErr;
   }
-  return data;
+  throw lastErr || new Error("Gemini call failed.");
 }
-
-const joinText = (data) =>
-  (data.content || [])
-    .filter((b) => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
 
 // ---- Tolerant JSON extraction: brace-matching + light repair ----
 const tryParse = (s) => {
@@ -119,29 +143,17 @@ function closeAll(s) {
   return out.replace(/,\s*([}\]])/g, "$1");
 }
 
-async function askClaude(prompt) {
-  const data = await callModel({
-    model: MODEL,
-    max_tokens: 4000,
-    messages: [{ role: "user", content: prompt }],
-    tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }],
-  });
-  const text = joinText(data);
+async function askModel(prompt) {
+  const text = await callGemini(prompt, { useSearch: true });
   let parsed = extractJson(text);
   if (parsed !== undefined) return parsed;
 
-  // Rescue pass: no search tools, just fix the JSON
-  const fixData = await callModel({
-    model: MODEL,
-    max_tokens: 4000,
-    messages: [
-      {
-        role: "user",
-        content: `Convert the following into strictly valid JSON — same content and structure, nothing added, no commentary, no markdown fences. Output only the JSON:\n\n${text.slice(0, 12000)}`,
-      },
-    ],
-  });
-  parsed = extractJson(joinText(fixData));
+  // Rescue pass: no search, strict JSON mode, just fix the output
+  const fixed = await callGemini(
+    `Convert the following into strictly valid JSON — same content and structure, nothing added, no commentary, no markdown fences. Output only the JSON:\n\n${text.slice(0, 12000)}`,
+    { useSearch: false }
+  );
+  parsed = extractJson(fixed);
   if (parsed !== undefined) return parsed;
 
   throw new Error("The guide's reply came back garbled — tap Try again.");
@@ -153,9 +165,9 @@ app.post("/api/tips", async (req, res) => {
   if (!locationLine || typeof locationLine !== "string" || locationLine.length > 300) {
     return res.status(400).json({ error: "Invalid location." });
   }
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     return res.status(500).json({
-      error: "Server is missing its ANTHROPIC_API_KEY — add it in Railway → Variables.",
+      error: "Server is missing its GEMINI_API_KEY — add it in Railway → Variables.",
     });
   }
   const fam =
@@ -167,7 +179,7 @@ app.post("/api/tips", async (req, res) => {
   const findPrompt = `You are a sharp hyper-local city guide. ${locationLine} The user's local device time is ${now}.
 
 Step 1: identify the neighbourhood and city for that location.
-Step 2: use web search to find, within roughly a 15-minute walk of it:
+Step 2: use Google Search to find, within roughly a 15-minute walk of it:
 - happyHours: bars or restaurants with happy hour deals active now or starting soon today (include times)
 - foodDeals: current food specials, set lunches, or promotions
 - landmarks: famous landmarks or attractions
@@ -175,7 +187,7 @@ Step 2: use web search to find, within roughly a 15-minute walk of it:
 - familyPicks: nearby things well-suited to this travelling family: ${fam}
 
 Leave "deals" as an empty array — it is filled elsewhere.
-Include "price" for any item where search results show a current price — local currency, short (e.g. "S$8 pints", "S$5.80", "free entry"). Use "" if no price was seen.
+Include "price" for any item where search results show a current price — local currency, short (e.g. "S$8 pints", "\u0e3f120", "free entry"). Use "" if no price was seen.
 
 Respond with ONLY valid JSON — no markdown fences, no preamble. Exactly this shape:
 ${SHAPE}
@@ -184,17 +196,17 @@ At most 3 items per category, "detail" max 12 words, empty arrays where nothing 
 
   const dealsPrompt = `You are a deal hunter. ${locationLine} The user's local device time is ${now}.
 
-Use web search to find CURRENT deals near this location on dining, drinking, and local attractions from deal and voucher platforms. Check whichever platforms actually operate in this market — e.g. Groupon, Fave, Klook, KKday, Eatigo, Chope, Pelago, ShopBack — plus any prominent local deal sites your searches surface.
+Use Google Search to find CURRENT deals near this location on dining, drinking, and local attractions from deal and voucher platforms. Check whichever platforms actually operate in this market — e.g. Groupon, Fave, Klook, KKday, Eatigo, Chope, Pelago, ShopBack — plus any prominent local deal sites your searches surface.
 
 Respond with ONLY valid JSON — no markdown fences, no preamble:
 {"deals":[{"name":"","detail":"","price":"","source":"","url":""}]}
 
-Max 4 deals. "detail" max 12 words. "price" short (e.g. "S$29 for two", "40% off"). "source" is the platform name. "url" must be copied verbatim from a search result, or "" if unsure. ${JSON_RULES} Only genuine current deals for places near the location, drawn from search results — never invented. Empty array if none found.`;
+Max 4 deals. "detail" max 12 words. "price" short (e.g. "\u0e3f299 for two", "40% off"). "source" is the platform name. "url" must be copied verbatim from a search result, or "" if unsure. ${JSON_RULES} Only genuine current deals for places near the location, drawn from search results — never invented. Empty array if none found.`;
 
   try {
     const [findR, dealsR] = await Promise.allSettled([
-      askClaude(findPrompt),
-      askClaude(dealsPrompt),
+      askModel(findPrompt),
+      askModel(dealsPrompt),
     ]);
     if (findR.status !== "fulfilled") throw findR.reason;
     const draft = findR.value;
@@ -205,7 +217,7 @@ Max 4 deals. "detail" max 12 words. "price" short (e.g. "S$29 for two", "40% off
 
     // Best-effort verification pass — falls back to the draft if anything goes wrong
     try {
-      const checkPrompt = `You are a fact-checker for a travel app. Today is ${now}. Verify this list of places, offers, and deals near ${draft.area || "the user's location"} using targeted web searches:
+      const checkPrompt = `You are a fact-checker for a travel app. Today is ${now}. Verify this list of places, offers, and deals near ${draft.area || "the user's location"} using targeted Google searches:
 
 ${JSON.stringify(draft)}
 
@@ -215,7 +227,7 @@ Rules:
 - Keep "url" and "source" fields exactly as given unless the item is removed.
 - Do not add new items. Keep "detail" max 12 words. ${JSON_RULES}
 Respond with ONLY the corrected JSON in exactly the same shape — no commentary.`;
-      const verified = await askClaude(checkPrompt);
+      const verified = await askModel(checkPrompt);
       if (verified && verified.area) return res.json(verified);
       return res.json(draft);
     } catch (e) {
