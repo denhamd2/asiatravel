@@ -226,15 +226,20 @@ Max 4 deals. "detail" max 12 words. "price" short (e.g. "\u0e3f299 for two", "40
 ${JSON.stringify(draft)}
 
 Rules:
-- Confirm each place exists and is currently operating, and that offers, times, deals, and prices are current. Correct anything wrong.
-- REMOVE any item you cannot reasonably confirm from search results.
+- For happyHours, foodDeals, and deals: confirm the offer, times, and prices are current; correct anything wrong, and REMOVE any offer you cannot reasonably confirm from search results.
+- For landmarks, photoSpots, and familyPicks: the bar is existence — keep the item if the place exists and is roughly as described; only remove it if it appears closed, wrong, or not near the area. Never remove these just because there is no offer to confirm.
 - Keep "url" and "source" fields exactly as given unless the item is removed.
 - Do not add new items. Keep "detail" max 12 words. ${JSON_RULES}
 Respond with ONLY the corrected JSON in exactly the same shape — no commentary.`;
       const verified = await askModel(checkPrompt);
-      if (verified && verified.area) return res.json(verified);
+      if (verified && verified.area) {
+        verified.meta = { verified: true, model: activeModel };
+        return res.json(verified);
+      }
+      draft.meta = { verified: false, model: activeModel };
       return res.json(draft);
     } catch (e) {
+      draft.meta = { verified: false, model: activeModel };
       return res.json(draft);
     }
   } catch (err) {

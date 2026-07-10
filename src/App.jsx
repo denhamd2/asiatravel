@@ -492,7 +492,7 @@ export default function App() {
         </button>
 
         <p style={{ marginTop: 14, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: MUTED, lineHeight: 1.6 }}>
-          v9 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
+          v10 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
         </p>
       </div>
 
@@ -675,8 +675,13 @@ export default function App() {
                   {manualInputBlock}
                 </div>
 
-                <p style={{ marginTop: 16, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: MUTED, lineHeight: 1.6 }}>
-                  Web-sourced and auto-verified — but offers change fast, so glance before you order.
+                {tips.meta && (
+                  <p style={{ marginTop: 16, marginBottom: 0, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: tips.meta.verified ? "#2E7D74" : "#A9761B" }}>
+                    {tips.meta.verified ? "✓ fact-check pass ran" : "⚠ fact-check pass skipped this run"} · {tips.meta.model}
+                  </p>
+                )}
+                <p style={{ marginTop: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: MUTED, lineHeight: 1.6 }}>
+                  Web-sourced — offers change fast, so glance before you order.
                 </p>
               </div>
             )}
