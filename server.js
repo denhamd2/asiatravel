@@ -54,8 +54,12 @@ async function callGemini(prompt, { useSearch = true } = {}) {
     }
     const msg = (data && data.error && data.error.message) || `HTTP ${upstream.status}`;
     lastErr = new Error(msg);
-    // Only fall through the chain when this model isn't available to this key
-    if (upstream.status !== 404 && !/not found|not supported/i.test(msg)) throw lastErr;
+    // Fall through the chain when the model is missing OR has no quota on this tier
+    const canFallThrough =
+      upstream.status === 404 ||
+      upstream.status === 429 ||
+      /not found|not supported|quota|rate limit/i.test(msg);
+    if (!canFallThrough) throw lastErr;
   }
   throw lastErr || new Error("Gemini call failed.");
 }
