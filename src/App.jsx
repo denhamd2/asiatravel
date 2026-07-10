@@ -405,8 +405,8 @@ export default function App() {
           .tick { animation: tick 220ms ease-out; }
           @keyframes tick { from { opacity: 0.4; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
           .note-btn { transition: transform 120ms ease; }
-          .sheet { animation: sheetUp 260ms cubic-bezier(.2,.8,.3,1); }
-          @keyframes sheetUp { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+          .sheet { animation: sheetUp 280ms cubic-bezier(.2,.8,.3,1); }
+          @keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
           .pulse { animation: pulse 1.4s ease-in-out infinite; }
           @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
         }
@@ -556,19 +556,18 @@ export default function App() {
         </button>
 
         <p style={{ marginTop: 14, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: MUTED, lineHeight: 1.6 }}>
-          v14 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
+          v15 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
         </p>
       </div>
 
       {/* ---- Local tips modal ---- */}
       {tipsOpen && (
         <div role="dialog" aria-modal="true" aria-label="Local tips" style={{ position: "fixed", inset: 0, zIndex: 50 }}>
-          <div onClick={() => setTipsOpen(false)} style={{ position: "absolute", inset: 0, background: "rgba(27,36,31,0.55)" }} />
           <div
             className="sheet"
-            style={{ position: "absolute", left: 0, right: 0, bottom: 0, maxHeight: "85%", background: PAPER, borderTop: `1.5px solid ${INK}`, borderRadius: "16px 16px 0 0", padding: "16px 18px 24px", overflowY: "auto" }}
+            style={{ position: "absolute", inset: 0, background: PAPER, padding: "0 18px 28px", overflowY: "auto", WebkitOverflowScrolling: "touch" }}
           >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <div style={{ position: "sticky", top: 0, zIndex: 2, background: PAPER, paddingTop: 16, paddingBottom: 10, borderBottom: `1.5px solid ${INK}22`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, maxWidth: 420, margin: "0 auto" }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 19, fontWeight: 800, display: "flex", alignItems: "center", gap: 7 }}>
                   <Pin color={SGD_RED} size={15} /> Local tips
@@ -597,7 +596,7 @@ export default function App() {
                 )}
                 <button
                   onClick={() => setTipsOpen(false)}
-                  aria-label="Close local tips"
+                  aria-label="Close local tips and return to converter"
                   style={{ width: 36, height: 36, borderRadius: 999, border: `1.5px solid ${INK}`, background: "#FDFDFB", fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center" }}
                 >
                   ✕
@@ -606,6 +605,7 @@ export default function App() {
             </div>
 
 
+            <div style={{ maxWidth: 420, margin: "0 auto" }}>
             {busy && (
               <div style={{ padding: "42px 0 34px", textAlign: "center" }}>
                 <div className="pulse" style={{ display: "inline-flex", marginBottom: 12 }}>
@@ -725,6 +725,7 @@ export default function App() {
                 </p>
               </div>
             )}
+            </div>
           </div>
         </div>
       )}
