@@ -31,3 +31,7 @@ ANTHROPIC_API_KEY=sk-... npm start
 ## Updating the exchange rate
 
 The default rate (1 SGD = 0.678 EUR, mid-market 5 Jul 2026) is set in `src/App.jsx` (`DEFAULT_RATE`). You can also just tap the rate in the app to override it — it's saved on your device.
+
+## Optional: real photos, ratings and review links
+
+Add a `PLACES_API_KEY` variable in Railway (a Google Cloud key with **Places API (New)** enabled). Without it, results simply show no photos or ratings — nothing is ever invented.

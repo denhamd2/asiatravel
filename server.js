@@ -264,6 +264,66 @@ Respond with ONLY the corrected JSON in exactly the same shape \u2014 no comment
   }
 });
 
+// ---- Google Places enrichment: real photos, ratings, review links ----
+app.post("/api/place", async (req, res) => {
+  const { name, area } = req.body || {};
+  if (!name || typeof name !== "string" || name.length > 120) {
+    return res.status(400).json({ error: "Invalid place name." });
+  }
+  if (!process.env.PLACES_API_KEY) return res.json({ found: false, reason: "no_key" });
+  try {
+    const upstream = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Goog-Api-Key": process.env.PLACES_API_KEY,
+        "X-Goog-FieldMask":
+          "places.id,places.displayName,places.rating,places.userRatingCount,places.googleMapsUri,places.photos",
+      },
+      body: JSON.stringify({
+        textQuery: `${name}${area ? ", " + area : ""}`,
+        maxResultCount: 1,
+      }),
+    });
+    const data = await upstream.json();
+    if (!upstream.ok) {
+      return res.json({ found: false, reason: (data.error && data.error.message) || "places_error" });
+    }
+    const p = data.places && data.places[0];
+    if (!p) return res.json({ found: false });
+    return res.json({
+      found: true,
+      rating: p.rating || null,
+      count: p.userRatingCount || 0,
+      mapsUri: p.googleMapsUri || "",
+      photos: (p.photos || []).slice(0, 4).map((ph) => ph.name),
+    });
+  } catch (e) {
+    return res.json({ found: false });
+  }
+});
+
+app.get("/api/photo", async (req, res) => {
+  const ref = String(req.query.ref || "");
+  const w = Math.min(Math.max(parseInt(req.query.w, 10) || 400, 100), 900);
+  if (!/^places\/[A-Za-z0-9_-]+\/photos\/[A-Za-z0-9_.=-]+$/.test(ref)) {
+    return res.status(400).end();
+  }
+  if (!process.env.PLACES_API_KEY) return res.status(404).end();
+  try {
+    const upstream = await fetch(
+      `https://places.googleapis.com/v1/${ref}/media?maxWidthPx=${w}&key=${process.env.PLACES_API_KEY}`
+    );
+    if (!upstream.ok) return res.status(404).end();
+    res.set("Content-Type", upstream.headers.get("content-type") || "image/jpeg");
+    res.set("Cache-Control", "public, max-age=86400");
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    return res.end(buf);
+  } catch (e) {
+    return res.status(404).end();
+  }
+});
+
 app.use(express.static(path.join(__dirname, "dist")));
 app.get("*", (_req, res) => res.sendFile(path.join(__dirname, "dist", "index.html")));
 

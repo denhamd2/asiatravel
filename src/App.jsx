@@ -171,6 +171,9 @@ export default function App() {
   const [interests] = useState(initial.interests);
   const lastRequest = useRef({ type: "gps" });
   const [origin, setOrigin] = useState(null);
+  const [placeInfo, setPlaceInfo] = useState({});
+  const placeInfoRef = useRef({});
+  const [openPhotos, setOpenPhotos] = useState(null);
 
   useEffect(() => {
     if (inputRef.current) inputRef.current.focus();
@@ -189,6 +192,44 @@ export default function App() {
     const id = setInterval(() => setMsgIdx((i) => (i + 1) % LOADING_MSGS.length), 2600);
     return () => clearInterval(id);
   }, [tipsPhase]);
+
+  // Enrich results with real Google Places data (photos, ratings) when available
+  useEffect(() => {
+    if (!tips) return;
+    const names = [];
+    for (const sec of TIP_SECTIONS) {
+      const items = Array.isArray(tips[sec.key]) ? tips[sec.key] : [];
+      for (const it of items) {
+        if (it && it.name && !(it.name in placeInfoRef.current)) names.push(it.name);
+      }
+    }
+    const queue = [...new Set(names)];
+    if (!queue.length) return;
+    let cancelled = false;
+    const note = (nm, d) => {
+      if (cancelled) return;
+      placeInfoRef.current = { ...placeInfoRef.current, [nm]: d };
+      setPlaceInfo(placeInfoRef.current);
+    };
+    (async () => {
+      const workers = Array.from({ length: 4 }, async () => {
+        while (queue.length && !cancelled) {
+          const nm = queue.shift();
+          try {
+            const r = await postJson("/api/place", { name: nm, area: tips.area || "" }, 20000, 0);
+            const d = await r.json();
+            note(nm, d && d.found ? d : { found: false });
+          } catch (e) {
+            note(nm, { found: false });
+          }
+        }
+      });
+      await Promise.all(workers);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tips]);
 
   const C = CURRENCIES[cur];
   const rate = rates[cur];
@@ -258,6 +299,9 @@ export default function App() {
   };
 
   const runSearch = async (locationLine) => {
+    placeInfoRef.current = {};
+    setPlaceInfo({});
+    setOpenPhotos(null);
     setTipsPhase("searching");
     try {
       const r = await postJson("/api/tips", {
@@ -556,7 +600,7 @@ export default function App() {
         </button>
 
         <p style={{ marginTop: 14, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: MUTED, lineHeight: 1.6 }}>
-          v15 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
+          v16 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
         </p>
       </div>
 
@@ -665,44 +709,78 @@ export default function App() {
                           Nothing solid found right nearby.
                         </p>
                       ) : (
-                        items.map((it, i) => (
+                        items.map((it, i) => {
+                          const pi = placeInfo[it.name];
+                          const photos = pi && pi.found && Array.isArray(pi.photos) ? pi.photos : [];
+                          return (
                           <div key={i} style={{ marginTop: 9, background: "#FDFDFB", border: `1.5px solid ${INK}`, borderRadius: 10, padding: "10px 12px" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
-                              <div style={{ fontWeight: 700, fontSize: 14.5 }}>{it.name}</div>
-                              <a
-                                href={sec.key === "deals" ? dealHref(it) : mapsHref(it.name)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: EUR_BLUE, textDecoration: "underline", flexShrink: 0 }}
-                              >
-                                {sec.key === "deals" ? "deal" : "walk"} ↗
-                              </a>
+                            <div style={{ display: "flex", gap: 10 }}>
+                              {photos.length > 0 && (
+                                <button
+                                  onClick={() => setOpenPhotos(openPhotos === it.name ? null : it.name)}
+                                  aria-label={`Photos of ${it.name}`}
+                                  style={{ flexShrink: 0, width: 72, height: 72, borderRadius: 8, overflow: "hidden", border: `1.5px solid ${INK}`, padding: 0, display: "block" }}
+                                >
+                                  <img src={`/api/photo?ref=${encodeURIComponent(photos[0])}&w=200`} alt={it.name} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                                </button>
+                              )}
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+                                  <div style={{ fontWeight: 700, fontSize: 14.5 }}>{it.name}</div>
+                                  <a
+                                    href={sec.key === "deals" ? dealHref(it) : mapsHref(it.name)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: EUR_BLUE, textDecoration: "underline", flexShrink: 0 }}
+                                  >
+                                    {sec.key === "deals" ? "deal" : "walk"} â
+                                  </a>
+                                </div>
+                                {it.detail && (
+                                  <div style={{ marginTop: 2, fontSize: 13, color: INK, lineHeight: 1.45 }}>{it.detail}</div>
+                                )}
+                                {walkMins(it) !== null && (
+                                  <div style={{ marginTop: 3, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED }}>
+                                    ~{walkMins(it)} min walk
+                                  </div>
+                                )}
+                                {it.when && (
+                                  <div style={{ marginTop: 3, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: sec.color, fontWeight: 500 }}>
+                                    {it.when}
+                                  </div>
+                                )}
+                                {it.price && (
+                                  <div style={{ marginTop: 3, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: INK, fontWeight: 500 }}>
+                                    {it.price}
+                                  </div>
+                                )}
+                                {it.source && (
+                                  <div style={{ marginTop: 3, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED }}>
+                                    via {it.source}
+                                  </div>
+                                )}
+                                {pi && pi.found && pi.mapsUri && (
+                                  <div style={{ marginTop: 3, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>
+                                    {pi.rating ? (
+                                      <span style={{ color: "#A9761B", fontWeight: 500 }}>â {pi.rating} ({(pi.count || 0).toLocaleString()}) Â· </span>
+                                    ) : null}
+                                    <a href={pi.mapsUri} target="_blank" rel="noopener noreferrer" style={{ color: EUR_BLUE, textDecoration: "underline" }}>
+                                      reviews â
+                                    </a>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            {it.detail && (
-                              <div style={{ marginTop: 2, fontSize: 13, color: INK, lineHeight: 1.45 }}>{it.detail}</div>
-                            )}
-                            {walkMins(it) !== null && (
-                              <div style={{ marginTop: 3, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED }}>
-                                ~{walkMins(it)} min walk
-                              </div>
-                            )}
-                            {it.when && (
-                              <div style={{ marginTop: 3, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: sec.color, fontWeight: 500 }}>
-                                {it.when}
-                              </div>
-                            )}
-                            {it.price && (
-                              <div style={{ marginTop: 3, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: INK, fontWeight: 500 }}>
-                                {it.price}
-                              </div>
-                            )}
-                            {it.source && (
-                              <div style={{ marginTop: 3, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED }}>
-                                via {it.source}
+                            {photos.length > 1 && openPhotos === it.name && (
+                              <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                                {photos.slice(1, 4).map((ph, j) => (
+                                  <img key={j} src={`/api/photo?ref=${encodeURIComponent(ph)}&w=300`} alt="" loading="lazy" style={{ width: 0, flex: 1, height: 84, objectFit: "cover", borderRadius: 6, border: `1px solid ${INK}55` }} />
+                                ))}
                               </div>
                             )}
                           </div>
-                        ))
+                          );
+                        })
                       )}
                     </div>
                   );
