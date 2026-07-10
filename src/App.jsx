@@ -170,6 +170,7 @@ export default function App() {
   const [manualPlace, setManualPlace] = useState("");
   const [interests] = useState(initial.interests);
   const lastRequest = useRef({ type: "gps" });
+  const [origin, setOrigin] = useState(null);
 
   useEffect(() => {
     if (inputRef.current) inputRef.current.focus();
@@ -294,6 +295,7 @@ export default function App() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude, accuracy } = pos.coords;
+        setOrigin({ lat: latitude, lng: longitude });
         runSearch(
           `I am standing at latitude ${latitude}, longitude ${longitude} (GPS accuracy ~${Math.round(accuracy)}m).`
         );
@@ -309,6 +311,7 @@ export default function App() {
     const place = manualPlace.trim();
     if (!place) return;
     lastRequest.current = { type: "place", place };
+    setOrigin(null);
     setTips(null);
     setTipsError("");
     setMsgIdx(0);
@@ -332,9 +335,26 @@ export default function App() {
   };
 
   const mapsHref = (name) =>
-    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+    `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
       name + (tips && tips.area ? ", " + tips.area : "")
-    )}`;
+    )}&travelmode=walking`;
+
+  const walkMins = (it) => {
+    const oLat = origin ? origin.lat : tips && Number(tips.areaLat);
+    const oLng = origin ? origin.lng : tips && Number(tips.areaLng);
+    const iLat = Number(it.lat);
+    const iLng = Number(it.lng);
+    if (!oLat || !oLng || !iLat || !iLng) return null;
+    const toRad = (d) => (d * Math.PI) / 180;
+    const dLat = toRad(iLat - oLat);
+    const dLng = toRad(iLng - oLng);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(oLat)) * Math.cos(toRad(iLat)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const km = 2 * 6371 * Math.asin(Math.sqrt(a)) * 1.3; // straight line + path factor
+    if (km > 30) return null;
+    return Math.max(1, Math.round((km * 1000) / 80)); // ~4.8 km/h
+  };
 
   const dealHref = (it) =>
     it.url && /^https:\/\//.test(it.url)
@@ -536,7 +556,7 @@ export default function App() {
         </button>
 
         <p style={{ marginTop: 14, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10.5, color: MUTED, lineHeight: 1.6 }}>
-          v12 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
+          v13 · Mid-market rate — cards and ATMs add a margin. Tap the rate to update it.
         </p>
       </div>
 
@@ -649,11 +669,16 @@ export default function App() {
                                 rel="noopener noreferrer"
                                 style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: EUR_BLUE, textDecoration: "underline", flexShrink: 0 }}
                               >
-                                {sec.key === "deals" ? "deal" : "map"} ↗
+                                {sec.key === "deals" ? "deal" : "walk"} ↗
                               </a>
                             </div>
                             {it.detail && (
                               <div style={{ marginTop: 2, fontSize: 13, color: INK, lineHeight: 1.45 }}>{it.detail}</div>
+                            )}
+                            {walkMins(it) !== null && (
+                              <div style={{ marginTop: 3, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED }}>
+                                ~{walkMins(it)} min walk
+                              </div>
                             )}
                             {it.when && (
                               <div style={{ marginTop: 3, fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: sec.color, fontWeight: 500 }}>

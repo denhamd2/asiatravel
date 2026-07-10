@@ -12,7 +12,7 @@ const MODEL_CHAIN = [process.env.GEMINI_MODEL, "gemini-3.5-flash", "gemini-2.5-f
 );
 let activeModel = null;
 
-const SHAPE = `{"area":"<neighbourhood, city>","happyHours":[{"name":"","detail":"","when":"","price":""}],"foodDeals":[{"name":"","detail":"","when":"","price":""}],"deals":[{"name":"","detail":"","price":"","source":"","url":""}],"landmarks":[{"name":"","detail":"","price":""}],"photoSpots":[{"name":"","detail":""}],"familyPicks":[{"name":"","detail":"","price":""}]}`;
+const SHAPE = `{"area":"<neighbourhood, city>","areaLat":0,"areaLng":0,"happyHours":[{"name":"","detail":"","when":"","price":"","lat":0,"lng":0}],"foodDeals":[{"name":"","detail":"","when":"","price":"","lat":0,"lng":0}],"deals":[{"name":"","detail":"","price":"","source":"","url":"","lat":0,"lng":0}],"landmarks":[{"name":"","detail":"","price":"","lat":0,"lng":0}],"photoSpots":[{"name":"","detail":"","lat":0,"lng":0}],"familyPicks":[{"name":"","detail":"","price":"","lat":0,"lng":0}]}`;
 
 const JSON_RULES = `Strings must escape any internal double quotes so the JSON parses cleanly.`;
 
@@ -191,6 +191,7 @@ Step 2: use Google Search to find, within roughly a 15-minute walk of it:
 - familyPicks: nearby things well-suited to this travelling family: ${fam}
 
 Leave "deals" as an empty array — it is filled elsewhere.
+Include each place's approximate "lat" and "lng" in decimal degrees, from search results or your knowledge; use 0 if genuinely unknown. Set "areaLat"/"areaLng" to the coordinates of the identified area.
 Include "price" for any item where search results show a current price — local currency, short (e.g. "S$8 pints", "\u0e3f120", "free entry"). Use "" if no price was seen.
 
 Respond with ONLY valid JSON — no markdown fences, no preamble. Exactly this shape:
@@ -203,9 +204,9 @@ At most 3 items per category, "detail" max 12 words, empty arrays where nothing 
 Use Google Search to find CURRENT deals near this location on dining, drinking, and local attractions from deal and voucher platforms. Check whichever platforms actually operate in this market — e.g. Groupon, Fave, Klook, KKday, Eatigo, Chope, Pelago, ShopBack — plus any prominent local deal sites your searches surface.
 
 Respond with ONLY valid JSON — no markdown fences, no preamble:
-{"deals":[{"name":"","detail":"","price":"","source":"","url":""}]}
+{"deals":[{"name":"","detail":"","price":"","source":"","url":"","lat":0,"lng":0}]}
 
-Max 4 deals. "detail" max 12 words. "price" short (e.g. "\u0e3f299 for two", "40% off"). "source" is the platform name. "url" must be copied verbatim from a search result, or "" if unsure. ${JSON_RULES} Only genuine current deals for places near the location, drawn from search results — never invented. Empty array if none found.`;
+Max 4 deals. "detail" max 12 words. "price" short (e.g. "\u0e3f299 for two", "40% off"). "source" is the platform name. "url" must be copied verbatim from a search result, or "" if unsure. Include each venue's approximate "lat"/"lng" in decimal degrees, or 0 if unknown. ${JSON_RULES} Only genuine current deals for places near the location, drawn from search results — never invented. Empty array if none found.`;
 
   try {
     const [findR, dealsR] = await Promise.allSettled([
@@ -248,7 +249,7 @@ ${JSON.stringify(clean)}
 Rules:
 - For happyHours, foodDeals, and deals: confirm the offer, times, and prices are current; correct anything wrong, and REMOVE any offer you cannot reasonably confirm from search results.
 - For landmarks, photoSpots, and familyPicks: the bar is existence \u2014 keep the item if the place exists and is roughly as described; only remove it if it appears closed, wrong, or not near the area. Never remove these just because there is no offer to confirm.
-- Keep "url" and "source" fields exactly as given unless the item is removed.
+- Keep "url", "source", "lat", "lng", "areaLat", and "areaLng" fields as given, correcting coordinates only if clearly wrong.
 - Do not add new items. Keep "detail" max 12 words. ${JSON_RULES}
 Respond with ONLY the corrected JSON in exactly the same shape \u2014 no commentary.`;
     const verified = await askModel(checkPrompt);
